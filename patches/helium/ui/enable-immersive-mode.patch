@@ -1,0 +1,244 @@
+--- a/chrome/browser/helium_flag_choices.h
++++ b/chrome/browser/helium_flag_choices.h
+@@ -26,6 +26,8 @@ namespace helium {
+     {kChannelBeta, kChannelCommandLine, kChannelBeta},
+   };
+ 
++  constexpr const char kEnableImmersiveModeCommandLine[] = "enable-immersive-mode";
++
+ }  // namespace helium
+ 
+ #endif  /* CHROME_BROWSER_HELIUM_FLAG_CHOICES_H_ */
+--- a/chrome/browser/helium_flag_entries.h
++++ b/chrome/browser/helium_flag_entries.h
+@@ -11,4 +11,9 @@
+      "Maximum frame rate for Energy Saver",
+      "Configures the frame rate the browser is throttled to when Energy Saver is enabled. Helium flag.",
+      kOsDesktop, MULTI_VALUE_TYPE(helium::kEnergySaverFrameRateChoices)},
++    {helium::kEnableImmersiveModeCommandLine,
++     "Enable Immersive Mode",
++     "Auto-hides the toolbar and tab strip until the mouse hovers near the top of the window, providing a distraction-free browsing experience. Helium flag.",
++     kOsDesktop, SINGLE_VALUE_TYPE(helium::kEnableImmersiveModeCommandLine)},
+ #endif  /* CHROME_BROWSER_HELIUM_FLAG_ENTRIES_H_ */
+--- a/chrome/browser/ui/views/frame/browser_view.h
++++ b/chrome/browser/ui/views/frame/browser_view.h
+@@ -8,6 +8,7 @@
+ #include <memory>
+ #include <string>
+ 
++#include "base/command_line.h"
+ #include "base/memory/raw_ptr.h"
+ #include "base/memory/weak_ptr.h"
+ #include "base/scoped_observation.h"
+@@ -15,6 +16,7 @@
+ #include "base/timer/timer.h"
+ #include "build/build_config.h"
+ #include "chrome/browser/ui/browser.h"
++#include "chrome/browser/ui/views/frame/browser_view_layout.h"
+ #include "chrome/browser/ui/views/frame/browser_view_layout_delegate.h"
+ #include "chrome/browser/ui/views/frame/immersive_mode_controller.h"
+ #include "chrome/browser/ui/views/frame/native_browser_frame.h"
+@@ -25,6 +27,7 @@
+ #include "ui/base/metadata/metadata_header_macros.h"
+ #include "ui/base/ui_base_types.h"
+ #include "ui/events/event_handler.h"
++#include "ui/gfx/animation/animation_delegate.h"
+ #include "ui/views/controls/button/button.h"
+ #include "ui/views/controls/webview/webview.h"
+ #include "ui/views/focus/focus_manager.h"
+@@ -33,6 +36,7 @@
+ #include "ui/views/widget/widget.h"
+ #include "ui/views/widget/widget_observer.h"
+ #include "ui/views/widget/widget_utils.h"
++#include "ui/views/mouse_watcher.h"
+ 
+ class BrowserActionsContainer;
+ class BrowserCommandController;
+@@ -200,6 +204,7 @@ class BrowserView : public views::ClientView,
+                      public views::WidgetObserver,
+                      public views::FocusChangeListener,
+                      public ui::EventHandler,
++                     public views::MouseWatcherListener,
+                      public ImmersiveModeController::Observer {
+  public:
+   METADATA_HEADER(BrowserView);
+@@ -400,6 +405,12 @@ class BrowserView : public views::ClientView,
+   // ImmersiveModeController::Observer:
+   void OnImmersiveRevealStarted() override;
+   void OnImmersiveRevealEnded() override;
++  
++  // views::MouseWatcherListener:
++  void MouseMovedOutOfHost() override;
++  void MouseMovedInHost() override;
+ 
+   // Called by Browser when the browser is being closed.
+   void BrowserClosing();
+@@ -800,6 +811,15 @@ class BrowserView : public views::ClientView,
+   // The layout manager for this view.
+   std::unique_ptr<BrowserViewLayout> layout_manager_;
+ 
++  // Immersive mode state
++  bool immersive_mode_enabled_ = false;
++  bool top_container_revealed_ = true;
++  base::OneShotTimer hide_timer_;
++  std::unique_ptr<views::MouseWatcher> mouse_watcher_;
++  
++  // Immersive mode methods
++  void UpdateImmersiveModeState();
++  void RevealTopContainer();
++  void HideTopContainer();
++  void ScheduleHideTopContainer();
++  bool IsImmersiveModeEnabled() const { return immersive_mode_enabled_; }
++  bool IsTopContainerRevealed() const { return top_container_revealed_; }
++
+   // The browser this view is associated with.
+   raw_ptr<Browser> browser_;
+--- a/chrome/browser/ui/views/frame/browser_view.cc
++++ b/chrome/browser/ui/views/frame/browser_view.cc
+@@ -100,6 +100,7 @@
+ #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
+ #include "chrome/browser/ui/views/translate/translate_bubble_view.h"
+ #include "chrome/browser/ui/views/update_recommended_bubble.h"
++#include "chrome/browser/helium_flag_choices.h"
+ #include "chrome/common/chrome_features.h"
+ #include "chrome/common/chrome_switches.h"
+ #include "chrome/common/pref_names.h"
+@@ -200,6 +201,7 @@
+ #include "ui/views/controls/webview/webview.h"
+ #include "ui/views/focus/focus_manager.h"
+ #include "ui/views/layout/fill_layout.h"
++#include "ui/views/mouse_watcher.h"
+ #include "ui/views/widget/widget.h"
+ #include "ui/views/window/non_client_view.h"
+@@ -500,6 +502,8 @@ BrowserView::BrowserView(std::unique_ptr<Browser> browser,
+   immersive_mode_controller_ = CreateImmersiveModeController();
+   if (immersive_mode_controller_)
+     immersive_mode_controller_->AddObserver(this);
++
++  UpdateImmersiveModeState();
+ }
+ 
+ BrowserView::~BrowserView() {
+@@ -2000,6 +2004,7 @@ void BrowserView::OnImmersiveRevealEnded() {
+   if (immersive_mode_controller_->IsEnabled())
+     top_container_->SetVisible(true);
+ }
++
++void BrowserView::MouseMovedOutOfHost() {
++  if (IsImmersiveModeEnabled() && top_container_revealed_) {
++    ScheduleHideTopContainer();
++  }
++}
++
++void BrowserView::MouseMovedInHost() {
++  if (IsImmersiveModeEnabled() && !top_container_revealed_) {
++    RevealTopContainer();
++  }
++}
+@@ -3000,6 +3005,50 @@ void BrowserView::OnImmersiveRevealEnded() {
+   }
+ }
++
++void BrowserView::UpdateImmersiveModeState() {
++  immersive_mode_enabled_ = base::CommandLine::ForCurrentProcess()->HasSwitch(
++      helium::kEnableImmersiveModeCommandLine);
++  
++  if (immersive_mode_enabled_) {
++    // Don't enable immersive mode in fullscreen, PWA, or when DevTools is docked
++    if (IsFullscreen() || browser_->is_type_app() || browser_->is_type_pwa()) {
++      immersive_mode_enabled_ = false;
++      return;
++    }
++    
++    // Initialize mouse watcher for top edge detection
++    if (!mouse_watcher_) {
++      mouse_watcher_ = std::make_unique<views::MouseWatcher>(
++          std::make_unique<views::MouseWatcherViewHost>(this, gfx::Insets(0, 0, height() - 3, 0)),
++          this);
++      mouse_watcher_->Start();
++    }
++    
++    // Initially hide the top container
++    top_container_revealed_ = false;
++    HideTopContainer();
++  } else {
++    // Clean up mouse watcher
++    mouse_watcher_.reset();
++    top_container_revealed_ = true;
++  }
++}
++
++void BrowserView::RevealTopContainer() {
++  if (!IsImmersiveModeEnabled() || top_container_revealed_) {
++    return;
++  }
++  
++  hide_timer_.Stop();
++  top_container_revealed_ = true;
++  
++  // Animate the top container sliding down
++  if (top_container_->layer()) {
++    gfx::Transform transform;
++    top_container_->layer()->SetTransform(transform);
++    
++    ui::LayerAnimator* animator = top_container_->layer()->GetAnimator();
++    animator->StopAnimating();
++    animator->AnimateToTransform(gfx::Transform(), base::Milliseconds(200));
++  }
++  
++  top_container_->SetVisible(true);
++  InvalidateLayout();
++}
++
++void BrowserView::HideTopContainer() {
++  if (!IsImmersiveModeEnabled() || !top_container_revealed_) {
++    return;
++  }
++  
++  top_container_revealed_ = false;
++  
++  // Animate the top container sliding up
++  if (top_container_->layer()) {
++    gfx::Transform transform;
++    transform.Translate(0, -top_container_->height());
++    top_container_->layer()->SetTransform(transform);
++    
++    ui::LayerAnimator* animator = top_container_->layer()->GetAnimator();
++    animator->StopAnimating();
++    animator->AnimateToTransform(transform, base::Milliseconds(200));
++  }
++  
++  InvalidateLayout();
++}
++
++void BrowserView::ScheduleHideTopContainer() {
++  hide_timer_.Start(FROM_HERE, base::Milliseconds(1000),
++                    base::BindOnce(&BrowserView::HideTopContainer, base::Unretained(this)));
++}
+--- a/chrome/browser/ui/views/frame/browser_view_layout.cc
++++ b/chrome/browser/ui/views/frame/browser_view_layout.cc
+@@ -200,6 +200,7 @@
+ #include "chrome/browser/ui/views/frame/browser_view.h"
+ #include "chrome/browser/ui/views/frame/browser_view_layout_delegate.h"
+ #include "chrome/browser/ui/views/frame/contents_layout_manager.h"
++#include "chrome/browser/ui/views/frame/browser_view_layout.h"
+ #include "chrome/browser/ui/views/infobars/infobar_container_view.h"
+ #include "chrome/browser/ui/views/side_panel/side_panel_ui.h"
+ #include "chrome/browser/ui/views/tabs/tab_strip.h"
+@@ -400,6 +401,15 @@ void BrowserViewLayout::LayoutTopContainer() {
+   if (!top_container_)
+     return;
+ 
++  // Handle immersive mode positioning
++  if (browser_view_->IsImmersiveModeEnabled() && 
++      !browser_view_->IsTopContainerRevealed()) {
++    // Position the top container above the visible area
++    gfx::Rect top_bounds = top_container_->bounds();
++    top_bounds.set_y(-top_bounds.height());
++    top_container_->SetBoundsRect(top_bounds);
++    return;
++  }
++
+   gfx::Rect top_container_bounds = CalculateTopContainerBounds();
+   top_container_->SetBoundsRect(top_container_bounds);
+ }

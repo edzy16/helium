@@ -243,6 +243,7 @@ helium/ui/fix-omnibox-tabs-icon.patch
 helium/ui/smaller-window-grab-handle.patch
 helium/ui/fix-pwa-toolbar.patch
 helium/ui/top-container.patch
+helium/ui/enable-immersive-mode.patch
 helium/ui/status-bubble.patch
 helium/ui/clean-incognito-guest-ntp.patch
 helium/ui/enable-fluent-scrollbar.patch
