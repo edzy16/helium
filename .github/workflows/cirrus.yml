@@ -1,13 +1,16 @@
-name: cirrus
-
-on: [push, pull_request]
-
-permissions:
-  contents: read
-
-jobs:
-  cirrus:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    - uses: cirruslabs/cirrus-action@ac5191d18a9bff05ff1a38f280f2b6d768e32153
+# Disabled: Cirrus CI workflow is designed for ungoogled-chromium
+# but we're working on a Helium fork. Use GitHub Actions validation instead.
+#
+# name: cirrus
+#
+# on: [push, pull_request]
+#
+# permissions:
+#   contents: read
+#
+# jobs:
+#   cirrus:
+#     runs-on: ubuntu-latest
+#     steps:
+#     - uses: actions/checkout@v4
+#     - uses: cirruslabs/cirrus-action@ac5191d18a9bff05ff1a38f280f2b6d768e32153
