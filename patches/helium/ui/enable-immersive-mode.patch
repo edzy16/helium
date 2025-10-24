@@ -3,11 +3,11 @@
 @@ -26,6 +26,8 @@ namespace helium {
      {kChannelBeta, kChannelCommandLine, kChannelBeta},
    };
- 
+
 +  constexpr const char kEnableImmersiveModeCommandLine[] = "enable-immersive-mode";
 +
  }  // namespace helium
- 
+
  #endif  /* CHROME_BROWSER_HELIUM_FLAG_CHOICES_H_ */
 --- a/chrome/browser/helium_flag_entries.h
 +++ b/chrome/browser/helium_flag_entries.h
@@ -25,7 +25,7 @@
 @@ -8,6 +8,7 @@
  #include <memory>
  #include <string>
- 
+
 +#include "base/command_line.h"
  #include "base/memory/raw_ptr.h"
  #include "base/memory/weak_ptr.h"
@@ -51,7 +51,7 @@
  #include "ui/views/widget/widget_observer.h"
  #include "ui/views/widget/widget_utils.h"
 +#include "ui/views/mouse_watcher.h"
- 
+
  class BrowserActionsContainer;
  class BrowserCommandController;
 @@ -200,6 +204,7 @@ class BrowserView : public views::ClientView,
@@ -66,23 +66,23 @@
    // ImmersiveModeController::Observer:
    void OnImmersiveRevealStarted() override;
    void OnImmersiveRevealEnded() override;
-+  
++
 +  // views::MouseWatcherListener:
 +  void MouseMovedOutOfHost() override;
 +  void MouseMovedInHost() override;
- 
+
    // Called by Browser when the browser is being closed.
    void BrowserClosing();
 @@ -800,6 +811,15 @@ class BrowserView : public views::ClientView,
    // The layout manager for this view.
    std::unique_ptr<BrowserViewLayout> layout_manager_;
- 
+
 +  // Immersive mode state
 +  bool immersive_mode_enabled_ = false;
 +  bool top_container_revealed_ = true;
 +  base::OneShotTimer hide_timer_;
 +  std::unique_ptr<views::MouseWatcher> mouse_watcher_;
-+  
++
 +  // Immersive mode methods
 +  void UpdateImmersiveModeState();
 +  void RevealTopContainer();
@@ -117,7 +117,7 @@
 +
 +  UpdateImmersiveModeState();
  }
- 
+
  BrowserView::~BrowserView() {
 @@ -2000,6 +2004,7 @@ void BrowserView::OnImmersiveRevealEnded() {
    if (immersive_mode_controller_->IsEnabled())
@@ -142,14 +142,14 @@
 +void BrowserView::UpdateImmersiveModeState() {
 +  immersive_mode_enabled_ = base::CommandLine::ForCurrentProcess()->HasSwitch(
 +      helium::kEnableImmersiveModeCommandLine);
-+  
++
 +  if (immersive_mode_enabled_) {
 +    // Don't enable immersive mode in fullscreen, PWA, or when DevTools is docked
 +    if (IsFullscreen() || browser_->is_type_app() || browser_->is_type_pwa()) {
 +      immersive_mode_enabled_ = false;
 +      return;
 +    }
-+    
++
 +    // Initialize mouse watcher for top edge detection
 +    if (!mouse_watcher_) {
 +      mouse_watcher_ = std::make_unique<views::MouseWatcher>(
@@ -157,7 +157,7 @@
 +          this);
 +      mouse_watcher_->Start();
 +    }
-+    
++
 +    // Initially hide the top container
 +    top_container_revealed_ = false;
 +    HideTopContainer();
@@ -172,20 +172,20 @@
 +  if (!IsImmersiveModeEnabled() || top_container_revealed_) {
 +    return;
 +  }
-+  
++
 +  hide_timer_.Stop();
 +  top_container_revealed_ = true;
-+  
++
 +  // Animate the top container sliding down
 +  if (top_container_->layer()) {
 +    gfx::Transform transform;
 +    top_container_->layer()->SetTransform(transform);
-+    
++
 +    ui::LayerAnimator* animator = top_container_->layer()->GetAnimator();
 +    animator->StopAnimating();
 +    animator->AnimateToTransform(gfx::Transform(), base::Milliseconds(200));
 +  }
-+  
++
 +  top_container_->SetVisible(true);
 +  InvalidateLayout();
 +}
@@ -194,20 +194,20 @@
 +  if (!IsImmersiveModeEnabled() || !top_container_revealed_) {
 +    return;
 +  }
-+  
++
 +  top_container_revealed_ = false;
-+  
++
 +  // Animate the top container sliding up
 +  if (top_container_->layer()) {
 +    gfx::Transform transform;
 +    transform.Translate(0, -top_container_->height());
 +    top_container_->layer()->SetTransform(transform);
-+    
++
 +    ui::LayerAnimator* animator = top_container_->layer()->GetAnimator();
 +    animator->StopAnimating();
 +    animator->AnimateToTransform(transform, base::Milliseconds(200));
 +  }
-+  
++
 +  InvalidateLayout();
 +}
 +
@@ -228,9 +228,9 @@
 @@ -400,6 +401,15 @@ void BrowserViewLayout::LayoutTopContainer() {
    if (!top_container_)
      return;
- 
+
 +  // Handle immersive mode positioning
-+  if (browser_view_->IsImmersiveModeEnabled() && 
++  if (browser_view_->IsImmersiveModeEnabled() &&
 +      !browser_view_->IsTopContainerRevealed()) {
 +    // Position the top container above the visible area
 +    gfx::Rect top_bounds = top_container_->bounds();
