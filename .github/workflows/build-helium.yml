@@ -1,14 +1,39 @@
-name: Build Helium with Immersive Mode
+name: Build Helium (Manual Only - Experimental)
 
 on:
-  push:
-    branches: [ main, feature/immersive_mode ]
-  pull_request:
-    branches: [ main ]
   workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "I understand this takes 6+ hours and 200GB" to confirm'
+        required: true
 
 jobs:
+  warn:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Warning
+      run: |
+        echo "⚠️  WARNING: This workflow is experimental and resource-intensive"
+        echo "⚠️  It requires:"
+        echo "   - 200+ GB disk space"
+        echo "   - 6+ hours build time"
+        echo "   - Will likely fail on GitHub Actions free tier"
+        echo ""
+        echo "✅ For production builds, submit a PR to:"
+        echo "   https://github.com/imputnet/helium-windows"
+        echo ""
+        echo "This workflow is for testing purposes only."
+        
+        if [ "${{ github.event.inputs.confirm }}" != "I understand this takes 6+ hours and 200GB" ]; then
+          echo "❌ Confirmation text doesn't match"
+          echo "Please type exactly: I understand this takes 6+ hours and 200GB"
+          exit 1
+        fi
+        
+        echo "✅ Confirmation received. Proceeding with experimental build..."
+  
   build-windows:
+    needs: warn
     runs-on: windows-latest
     
     steps:
@@ -81,18 +106,22 @@ jobs:
         retention-days: 7
         
     - name: Create release
-      if: github.ref == 'refs/heads/main'
       uses: softprops/action-gh-release@v1
       with:
         tag_name: immersive-mode-${{ github.sha }}
-        name: Helium with Immersive Mode
+        name: Helium with Immersive Mode (Experimental)
         body: |
-          Built with immersive mode feature enabled.
+          ⚠️ **EXPERIMENTAL BUILD** ⚠️
           
-          To test:
+          This is an experimental build with immersive mode feature enabled.
+          
+          **To test:**
           1. Download and extract helium.exe
           2. Run with: `helium.exe --enable-immersive-mode`
           3. Or enable in chrome://flags
+          
+          **Note:** This build was created using GitHub Actions and may have issues.
+          For production builds, use the official Helium releases.
         files: helium-windows/out/Release/helium.exe
         draft: false
         prerelease: true

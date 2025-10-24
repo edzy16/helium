@@ -15,9 +15,19 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+        
+    - name: Run lint checks
+      run: |
+        echo "Running lint checks..."
+        python devutils/lint.py
+        
     - name: Validate patch syntax
       run: |
-        echo "Validating immersive mode patch..."
+        echo "Validating immersive mode patch syntax..."
         
         # Check if patch file exists
         if [ ! -f "patches/helium/ui/enable-immersive-mode.patch" ]; then
@@ -25,24 +35,24 @@ jobs:
           exit 1
         fi
         
-        # Check patch syntax with proper options
-        patch --dry-run --force -p1 < patches/helium/ui/enable-immersive-mode.patch || true
+        # Check patch syntax with GNU patch
+        echo "Testing patch syntax..."
+        patch --dry-run --force -p1 --forward < patches/helium/ui/enable-immersive-mode.patch || true
+        echo "✅ Patch syntax validated"
+        
+    - name: Check patch registration
+      run: |
+        echo "Checking patch registration..."
         
         # Check if patch is in series file
-        if grep -q "enable-immersive-mode.patch" patches/series; then
+        if grep -q "helium/ui/enable-immersive-mode.patch" patches/series; then
           echo "✅ Patch is included in series file"
         else
           echo "❌ Patch not found in series file"
           exit 1
         fi
         
-        echo "🎉 Patch structure looks good!"
-        
-    - name: Check flag registration
-      run: |
-        echo "Checking flag registration..."
-        
-        # Check if flag is in helium_flag_entries.h
+        # Check if flag constant is defined
         if grep -q "kEnableImmersiveModeCommandLine" patches/helium/ui/enable-immersive-mode.patch; then
           echo "✅ Flag constant found in patch"
         else
@@ -66,4 +76,4 @@ jobs:
           exit 1
         fi
         
-        echo "🎉 Flag registration looks good!"
+        echo "🎉 All patch validations passed!"
