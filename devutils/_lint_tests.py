@@ -34,7 +34,9 @@ def a_all_patches_in_tree_are_in_series():
         if not patch.is_file() or patch == patches_dir / "series":
             continue
 
-        assert str(patch.relative_to(patches_dir)) in series, \
+        # Convert Windows backslashes to forward slashes for comparison
+        relative_path = str(patch.relative_to(patches_dir)).replace('\\', '/')
+        assert relative_path in series, \
                f"{patch} exists in source tree, but is not included in the series"
 
 
