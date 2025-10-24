@@ -1,0 +1,67 @@
+name: Validate Immersive Mode Patch
+
+on:
+  push:
+    branches: [ main, feature/immersive_mode ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  validate-patch:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Validate patch syntax
+      run: |
+        echo "Validating immersive mode patch..."
+        
+        # Check if patch file exists
+        if [ ! -f "patches/helium/ui/enable-immersive-mode.patch" ]; then
+          echo "❌ Patch file not found!"
+          exit 1
+        fi
+        
+        # Check patch syntax
+        patch --dry-run -p1 < patches/helium/ui/enable-immersive-mode.patch
+        if [ $? -eq 0 ]; then
+          echo "✅ Patch syntax is valid"
+        else
+          echo "❌ Patch syntax is invalid"
+          exit 1
+        fi
+        
+        # Check if patch is in series file
+        if grep -q "enable-immersive-mode.patch" patches/series; then
+          echo "✅ Patch is included in series file"
+        else
+          echo "❌ Patch not found in series file"
+          exit 1
+        fi
+        
+        echo "🎉 All validations passed!"
+        
+    - name: Check flag registration
+      run: |
+        echo "Checking flag registration..."
+        
+        # Check if flag is in helium_flag_entries.h
+        if grep -q "kEnableImmersiveModeCommandLine" patches/helium/ui/enable-immersive-mode.patch; then
+          echo "✅ Flag constant found in patch"
+        else
+          echo "❌ Flag constant not found"
+          exit 1
+        fi
+        
+        # Check if flag description is present
+        if grep -q "Enable Immersive Mode" patches/helium/ui/enable-immersive-mode.patch; then
+          echo "✅ Flag description found"
+        else
+          echo "❌ Flag description not found"
+          exit 1
+        fi
+        
+        echo "🎉 Flag registration looks good!"
