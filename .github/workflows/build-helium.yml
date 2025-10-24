@@ -1,0 +1,90 @@
+name: Build Helium with Immersive Mode
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch: # Allow manual triggering
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+        
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+        
+    - name: Install depot_tools
+      run: |
+        git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
+        echo "$env:GITHUB_WORKSPACE\depot_tools" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        
+    - name: Set environment variables
+      run: |
+        echo "DEPOT_TOOLS_WIN_TOOLCHAIN=0" >> $env:GITHUB_ENV
+        echo "GYP_MSVS_VERSION=2022" >> $env:GITHUB_ENV
+        
+    - name: Install Visual Studio Build Tools
+      uses: microsoft/setup-msbuild@v1.3
+      
+    - name: Install Windows SDK
+      run: |
+        # Install Windows 10/11 SDK
+        choco install windows-sdk-10-version-2004-all -y
+        
+    - name: Clone Helium Windows platform
+      run: |
+        git clone https://github.com/imputnet/helium-windows.git
+        cd helium-windows
+        
+        # Point to this core repo
+        git submodule set-url core https://github.com/${{ github.repository }}.git
+        git submodule update --init --recursive
+        
+    - name: Fetch Chromium source
+      run: |
+        cd helium-windows
+        python scripts/fetch.py
+        
+    - name: Configure build
+      run: |
+        cd helium-windows
+        python scripts/configure.py --release
+        
+    - name: Build Helium
+      run: |
+        cd helium-windows
+        python scripts/build.py --release
+      timeout-minutes: 180 # 3 hours max
+      
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: helium-build
+        path: helium-windows/out/Release/
+        retention-days: 7
+        
+    - name: Create release
+      if: github.ref == 'refs/heads/main'
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: immersive-mode-${{ github.sha }}
+        name: Helium with Immersive Mode
+        body: |
+          Built with immersive mode feature enabled.
+          
+          To test:
+          1. Download and extract helium.exe
+          2. Run with: `helium.exe --enable-immersive-mode`
+          3. Or enable in chrome://flags
+        files: helium-windows/out/Release/helium.exe
+        draft: false
+        prerelease: true
