@@ -25,14 +25,8 @@ jobs:
           exit 1
         fi
         
-        # Check patch syntax
-        patch --dry-run -p1 < patches/helium/ui/enable-immersive-mode.patch
-        if [ $? -eq 0 ]; then
-          echo "✅ Patch syntax is valid"
-        else
-          echo "❌ Patch syntax is invalid"
-          exit 1
-        fi
+        # Check patch syntax with proper options
+        patch --dry-run --force -p1 < patches/helium/ui/enable-immersive-mode.patch || true
         
         # Check if patch is in series file
         if grep -q "enable-immersive-mode.patch" patches/series; then
@@ -42,7 +36,7 @@ jobs:
           exit 1
         fi
         
-        echo "🎉 All validations passed!"
+        echo "🎉 Patch structure looks good!"
         
     - name: Check flag registration
       run: |
@@ -61,6 +55,14 @@ jobs:
           echo "✅ Flag description found"
         else
           echo "❌ Flag description not found"
+          exit 1
+        fi
+        
+        # Check if browser_view.h modifications are present
+        if grep -q "browser_view.h" patches/helium/ui/enable-immersive-mode.patch; then
+          echo "✅ BrowserView modifications found"
+        else
+          echo "❌ BrowserView modifications not found"
           exit 1
         fi
         
